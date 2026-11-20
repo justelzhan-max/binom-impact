@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>BINOM Impact — Волонтёрство и проекты школ BINOM</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #F8FAFC; color: #0F172A; }
+    .tab-active { background: #1E3A8A; color: #FFFFFF; }
+    .tab-idle { background: #FFFFFF; color: #475569; border: 1px solid #E2E8F0; }
+    .chip-active { background: #0D9488; color: #FFFFFF; border-color: #0D9488; }
+    .chip-idle { background: #FFFFFF; color: #334155; border-color: #CBD5E1; }
+  </style>
+</head>
+<body class="min-h-screen pb-24">
+
+  <!-- Top Header -->
+  <header class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
+    <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-blue-900 text-white font-extrabold flex items-center justify-center text-sm tracking-tight">BI</div>
+        <div>
+          <div class="font-extrabold text-slate-900 leading-tight text-base">BINOM Impact</div>
+          <div class="text-xs text-slate-500">Волонтёрство и проекты · Астана</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="btn-open-create" class="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold transition">+ Добавить</button>
+        <button id="btn-open-admin" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition">QR-сканер</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 pt-5 space-y-5">
+
+    <!-- Live Impact Banner -->
+    <section class="rounded-2xl bg-slate-900 text-white p-5">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <span class="inline-block text-xs font-semibold uppercase tracking-wider text-teal-300 mb-1">Сеть школ BINOM · Астана</span>
+          <h1 class="text-xl sm:text-2xl font-extrabold leading-snug">Копи подтверждённые часы и собирай команду на проекты</h1>
+        </div>
+        <button id="btn-hero-profile" class="shrink-0 px-4 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-sm transition">
+          Мой QR-купон
+        </button>
+      </div>
+      <div class="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-800 text-center">
+        <div>
+          <div id="stat-students" class="text-xl font-extrabold text-white">—</div>
+          <div class="text-xs text-slate-400">учеников</div>
+        </div>
+        <div>
+          <div id="stat-hours" class="text-xl font-extrabold text-teal-300">—</div>
+          <div class="text-xs text-slate-400">часов всего</div>
+        </div>
+        <div>
+          <div id="stat-nfc" class="text-xl font-extrabold text-blue-300">—</div>
+          <div class="text-xs text-slate-400">NFC / QR сканов</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main View Switcher -->
+    <nav class="grid grid-cols-3 gap-2">
+      <button data-view="volunteering" class="view-btn tab-active py-2.5 px-3 rounded-xl text-sm font-semibold transition">Волонтёрство</button>
+      <button data-view="project" class="view-btn tab-idle py-2.5 px-3 rounded-xl text-sm font-semibold transition">Проекты</button>
+      <button data-view="profile" class="view-btn tab-idle py-2.5 px-3 rounded-xl text-sm font-semibold transition">Профиль и QR</button>
+    </nav>
+
+    <!-- FEED SECTION (Volunteering & Projects) -->
+    <section id="section-feed" class="space-y-4">
+      <div class="flex flex-col sm:flex-row gap-2">
+        <select id="filter-school" class="w-full sm:w-1/2 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800">
+          <option value="all">Все школы BINOM</option>
+          <option value="BINOM им. Ә. Бөкейхана">BINOM им. Ә. Бөкейхана</option>
+          <option value="BINOM им. Қ. Сәтбаева">BINOM им. Қ. Сәтбаева</option>
+          <option value="BINOM им. Ы. Алтынсарина">BINOM им. Ы. Алтынсарина</option>
+          <option value="BINOM им. А. Байтұрсынұлы">BINOM им. А. Байтұрсынұлы</option>
+          <option value="BINOM им. Ә. Кекілбаева">BINOM им. Ә. Кекілбаева</option>
+          <option value="BINOM им. Д. Қонаева">BINOM им. Д. Қонаева</option>
+        </select>
+        <input id="filter-search" type="text" placeholder="Поиск по названию или теме..." class="w-full sm:w-1/2 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" />
+      </div>
+
+      <div id="feed-list" class="space-y-3">
+        <div class="p-6 text-center text-sm text-slate-500 bg-white rounded-2xl border border-slate-200">Загружаем задачи из базы...</div>
+      </div>
+    </section>
+
+    <!-- PROFILE & QR COUPON SECTION -->
+    <section id="section-profile" class="hidden space-y-4">
+      <!-- Registration Form (if not registered) -->
+      <div id="register-card" class="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+        <div>
+          <h2 class="text-lg font-extrabold text-slate-900">Регистрация ученика за 20 секунд</h2>
+          <p class="text-sm text-slate-600 mt-1">После регистрации ты сразу получишь одноразовый QR-купон и личный счётчик волонтёрских часов.</p>
+        </div>
+        <form id="register-form" class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Имя и фамилия</label>
+            <input name="full_name" required placeholder="Например: Алихан Сериков" class="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Школа BINOM</label>
+              <select name="school_name" class="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm bg-white">
+                <option>BINOM им. Ә. Бөкейхана</option>
+                <option>BINOM им. Қ. Сәтбаева</option>
+                <option>BINOM им. Ы. Алтынсарина</option>
+                <option>BINOM им. А. Байтұрсынұлы</option>
+                <option>BINOM им. Ә. Кекілбаева</option>
+                <option>BINOM им. Д. Қонаева</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Класс</label>
+              <input name="grade" required placeholder="Например: 11А" class="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Telegram для связи</label>
+            <input name="telegram" required placeholder="@username" class="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1.5">Что тебе интересно? (выбери 1–2)</label>
+            <div id="interest-chips" class="flex flex-wrap gap-2">
+              <button type="button" data-val="Хакатоны и IT" class="interest-chip chip-idle px-3 py-1.5 rounded-full text-xs font-medium border">Хакатоны и IT</button>
+              <button type="button" data-val="STEM и инженерия" class="interest-chip chip-idle px-3 py-1.5 rounded-full text-xs font-medium border">STEM и инженерия</button>
+              <button type="button" data-val="Менторство" class="interest-chip chip-idle px-3 py-1.5 rounded-full text-xs font-medium border">Менторство</button>
+              <button type="button" data-val="Медиа и съёмка" class="interest-chip chip-idle px-3 py-1.5 rounded-full text-xs font-medium border">Медиа и съёмка</button>
+              <button type="button" data-val="Школьные ивенты" class="interest-chip chip-idle px-3 py-1.5 rounded-full text-xs font-medium border">Школьные ивенты</button>
+            </div>
+          </div>
+          <button type="submit" class="w-full py-3 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-bold text-sm transition">
+            Создать профиль и получить QR-купон
+          </button>
+        </form>
+      </div>
+
+      <!-- Logged-in Profile + One-Time QR Coupon -->
+      <div id="profile-card" class="hidden space-y-4">
+        <div class="bg-white rounded-2xl border border-slate-200 p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div id="prof-name" class="text-lg font-extrabold text-slate-900"></div>
+              <div id="prof-meta" class="text-xs text-slate-500 mt-0.5"></div>
+            </div>
+            <button id="btn-logout" class="text-xs text-slate-400 hover:text-slate-700 underline">Выйти</button>
+          </div>
+          <div class="flex flex-wrap gap-2 mt-3" id="prof-badges"></div>
+          <div class="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100">
+            <div class="p-3 rounded-xl bg-slate-50">
+              <div id="prof-hours" class="text-2xl font-extrabold text-blue-900">0 ч.</div>
+              <div class="text-xs text-slate-500">подтверждённых часов</div>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-50">
+              <div id="prof-coupon-status" class="text-sm font-bold text-teal-700">Активен</div>
+              <div class="text-xs text-slate-500 mt-0.5">статус QR-купона</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 text-center space-y-3">
+          <div class="text-sm font-bold text-slate-900">Твой одноразовый QR-купон запуска</div>
+          <p class="text-xs text-slate-500">Покажи этот QR волонтёру на перемене — после сканирования купон автоматически погасится.</p>
+          <div id="qrcode-box" class="inline-flex items-center justify-center p-4 bg-white rounded-2xl border border-slate-200"></div>
+          <div id="qr-token-text" class="font-mono text-xs text-slate-400 break-all"></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MODAL: Create New Opportunity -->
+  <div id="modal-create" class="hidden fixed inset-0 z-40 bg-slate-950/60 flex items-end sm:items-center justify-center p-3">
+    <div class="bg-white w-full max-w-lg rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-extrabold text-slate-900">Опубликовать задачу или проект</h3>
+        <button id="btn-close-create" class="text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+      </div>
+      <form id="create-form" class="space-y-3">
+        <div class="grid grid-cols-2 gap-2">
+          <select name="type" class="rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white">
+            <option value="volunteering">Волонтёрство</option>
+            <option value="project">Проект / Команда</option>
+          </select>
+          <select name="category" class="rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white">
+            <option>События</option>
+            <option>Менторство</option>
+            <option>STEM</option>
+            <option>Медиа</option>
+            <option>Турнир</option>
+            <option>Хакатон</option>
+          </select>
+        </div>
+        <input name="title" required placeholder="Название (например: Нужен Python-разработчик в команду)" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+        <textarea name="description" required rows="3" placeholder="Что нужно делать, когда и какой результат?" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"></textarea>
+        <div class="grid grid-cols-2 gap-2">
+          <input name="hours" type="number" min="1" max="20" value="2" required placeholder="Часы" class="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+          <input name="spots_total" type="number" min="1" max="50" value="5" required placeholder="Мест" class="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <input name="author_name" required placeholder="Твоё имя / клуб" class="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+          <input name="author_telegram" required placeholder="@telegram" class="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+        </div>
+        <select name="school_name" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white">
+          <option>Все школы BINOM</option>
+          <option>BINOM им. Ә. Бөкейхана</option>
+          <option>BINOM им. Қ. Сәтбаева</option>
+          <option>BINOM им. Ы. Алтынсарина</option>
+          <option>BINOM им. А. Байтұрсынұлы</option>
+          <option>BINOM им. Ә. Кекілбаева</option>
+          <option>BINOM им. Д. Қонаева</option>
+        </select>
+        <button type="submit" class="w-full py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm">Опубликовать в ленту</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Volunteer / Admin QR Scanner -->
+  <div id="modal-admin" class="hidden fixed inset-0 z-40 bg-slate-950/60 flex items-end sm:items-center justify-center p-3">
+    <div class="bg-white w-full max-w-lg rounded-2xl p-5 space-y-4 max-h-[92vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-extrabold text-slate-900">Панель волонтёра · Проверка QR</h3>
+        <button id="btn-close-admin" class="text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+      </div>
+
+      <!-- PIN Gate -->
+      <div id="admin-pin-gate" class="space-y-3">
+        <p class="text-xs text-slate-600">Введи PIN-код команды волонтёров (по умолчанию <span class="font-mono font-bold">2026</span> — поменяй в <span class="font-mono">app.js</span>).</p>
+        <div class="flex gap-2">
+          <input id="admin-pin-input" type="password" placeholder="PIN-код" class="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+          <button id="btn-admin-unlock" class="px-4 py-2 rounded-xl bg-blue-900 text-white text-sm font-bold">Войти</button>
+        </div>
+      </div>
+
+      <!-- Unlocked Scanner -->
+      <div id="admin-panel" class="hidden space-y-4">
+        <div id="qr-reader" class="w-full rounded-xl overflow-hidden border border-slate-200"></div>
+        <div class="flex gap-2">
+          <input id="manual-qr-input" placeholder="Или вставь код купона вручную..." class="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-xs font-mono" />
+          <button id="btn-manual-verify" class="px-3 py-2 rounded-xl bg-teal-600 text-white text-xs font-bold">Проверить</button>
+        </div>
+        <div id="scan-result" class="hidden p-4 rounded-xl text-sm font-semibold"></div>
+        <div class="border-t border-slate-200 pt-3">
+          <div class="text-xs font-bold text-slate-700 mb-2">Выдать часы и бейдж First Volunteer</div>
+          <div id="admin-students-list" class="space-y-2 max-h-48 overflow-y-auto text-xs"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
