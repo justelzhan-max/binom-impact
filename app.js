@@ -1,5 +1,8 @@
-// Конфигурация: ключи подтягиваются из Vercel Environment Variables через /api/config
 const VOLUNTEER_PIN = "2026"; // Поменяй PIN перед запуском в школе!
+
+// Публичные ключи Supabase (fallback, если /api/config недоступен; secret key здесь НЕ используется)
+const DEFAULT_SUPABASE_URL = "https://ntydadkgtmwujzdfgfvh.supabase.co";
+const DEFAULT_SUPABASE_KEY = "sb_publishable_Nr672uZIhT8t8-hImebYPw__XhOx4EM";
 
 let sb = null;
 let currentView = "volunteering";
@@ -7,41 +10,44 @@ let allOpportunities = [];
 let selectedInterests = new Set();
 let html5QrScanner = null;
 
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.remove("hidden");
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => t.classList.add("hidden"), 3200);
+}
+
 async function initApp() {
-  let url = "";
-  let key = "";
+  // 1. Привязываем все кнопки СРАЗУ, чтобы вкладки и окна работали мгновенно
+  bindEvents();
+
+  // 2. Получаем публичный URL и publishable key из Vercel или fallback
+  let url = DEFAULT_SUPABASE_URL;
+  let key = DEFAULT_SUPABASE_KEY;
   try {
     const res = await fetch("/api/config");
     if (res.ok) {
       const cfg = await res.json();
-      url = cfg.supabaseUrl || "";
-      key = cfg.supabaseKey || "";
+      if (cfg.supabaseUrl) url = cfg.supabaseUrl;
+      if (cfg.supabaseKey) key = cfg.supabaseKey;
     }
-  } catch (e) {
-    console.warn("Config API fallback", e);
-  }
-
-  if (!url || !key) {
-    document.getElementById("feed-list").innerHTML =
-      '<div class="p-5 bg-amber-50 border border-amber-200 rounded-2xl text-sm text-amber-900">Добавь <b>NEXT_PUBLIC_SUPABASE_URL</b> и <b>NEXT_PUBLIC_SUPABASE_ANON_KEY</b> в Environment Variables в Vercel и нажми Redeploy.</div>';
-    return;
-  }
+  } catch (e) {}
 
   sb = window.supabase.createClient(url, key);
 
-  // Трекинг NFC / QR-меток (?point=hall, ?point=library и т.д.)
+  // 3. Трекинг NFC / QR-меток (?point=hall, ?point=canteen, ?point=library)
   const params = new URLSearchParams(window.location.search);
   const point = params.get("point");
   if (point) {
     sb.from("nfc_hits").insert({ point_name: point.slice(0, 60) }).then(() => {});
   }
 
-  bindEvents();
   await Promise.all([loadStats(), loadOpportunities(), renderProfile()]);
 }
 
 function bindEvents() {
-  document.querySelectorAll(".view-btn").forEach((btn) => {
+  document.querySelectorAll(".view-btn, .bnav-btn").forEach((btn) => {
     btn.addEventListener("click", () => switchView(btn.dataset.view));
   });
 
@@ -49,7 +55,25 @@ function bindEvents() {
   document.getElementById("filter-school").addEventListener("change", renderFeed);
   document.getElementById("filter-search").addEventListener("input", renderFeed);
 
-  // Interest chips
+  // Кнопка "Стать первым волонтёром (+10 ч.)" на карточке буфета
+  document.getElementById("btn-join-first-volo").addEventListener("click", async () => {
+    const profileId = localStorage.getItem("binom_profile_id");
+    if (!profileId) {
+      showToast("Сначала зарегистрируйся за 20 секунд — и сразу попадёшь в команду!");
+      switchView("profile");
+      return;
+    }
+    const firstOp = allOpportunities.find((o) => o.type === "volunteering");
+    if (firstOp) {
+      await sb.from("applications").upsert(
+        { opportunity_id: firstOp.id, student_id: profileId },
+        { onConflict: "opportunity_id,student_id" }
+      );
+    }
+    showToast("Заявка на смену в буфете (+10 ч.) отправлена! После смены куратор начислит +10 ч. и бейдж.");
+  });
+
+  // Выбор интересов
   document.querySelectorAll(".interest-chip").forEach((chip) => {
     chip.addEventListener("click", () => {
       const val = chip.dataset.val;
@@ -65,9 +89,12 @@ function bindEvents() {
     });
   });
 
-  // Registration form
+  // Регистрация
   document.getElementById("register-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    const btn = document.getElementById("btn-reg-submit");
+    btn.disabled = true;
+    btn.textContent = "Создаём профиль...";
     const fd = new FormData(e.target);
     const payload = {
       full_name: fd.get("full_name").toString().trim(),
@@ -77,11 +104,14 @@ function bindEvents() {
       interests: Array.from(selectedInterests),
     };
     const { data, error } = await sb.from("profiles").insert(payload).select().single();
+    btn.disabled = false;
+    btn.textContent = "Создать профиль и получить QR-купон";
     if (error) {
-      alert("Ошибка регистрации: " + error.message);
+      showToast("Ошибка регистрации: " + error.message);
       return;
     }
     localStorage.setItem("binom_profile_id", data.id);
+    showToast("Профиль создан! Твой одноразовый QR-купон готов.");
     await loadStats();
     await renderProfile();
   });
@@ -89,9 +119,18 @@ function bindEvents() {
   document.getElementById("btn-logout").addEventListener("click", () => {
     localStorage.removeItem("binom_profile_id");
     renderProfile();
+    showToast("Вы вышли из профиля");
   });
 
-  // Create opportunity modal
+  document.getElementById("btn-copy-token").addEventListener("click", () => {
+    const txt = document.getElementById("qr-token-text").textContent;
+    if (txt && navigator.clipboard) {
+      navigator.clipboard.writeText(txt);
+      showToast("Код купона скопирован");
+    }
+  });
+
+  // Модалка создания задачи/проекта
   const modalCreate = document.getElementById("modal-create");
   document.getElementById("btn-open-create").addEventListener("click", () => modalCreate.classList.remove("hidden"));
   document.getElementById("btn-close-create").addEventListener("click", () => modalCreate.classList.add("hidden"));
@@ -111,17 +150,21 @@ function bindEvents() {
     };
     const { error } = await sb.from("opportunities").insert(payload);
     if (error) {
-      alert("Ошибка публикации: " + error.message);
+      showToast("Ошибка публикации: " + error.message);
       return;
     }
     e.target.reset();
     modalCreate.classList.add("hidden");
+    showToast("Опубликовано в ленту!");
+    switchView(payload.type);
     await loadOpportunities();
   });
 
-  // Admin QR scanner modal
+  // Модалка QR-сканера / Админки
   const modalAdmin = document.getElementById("modal-admin");
-  document.getElementById("btn-open-admin").addEventListener("click", () => modalAdmin.classList.remove("hidden"));
+  const openAdmin = () => modalAdmin.classList.remove("hidden");
+  document.getElementById("btn-open-admin").addEventListener("click", openAdmin);
+  document.getElementById("bnav-admin").addEventListener("click", openAdmin);
   document.getElementById("btn-close-admin").addEventListener("click", () => {
     stopScanner();
     modalAdmin.classList.add("hidden");
@@ -130,7 +173,7 @@ function bindEvents() {
   document.getElementById("btn-admin-unlock").addEventListener("click", async () => {
     const pin = document.getElementById("admin-pin-input").value.trim();
     if (pin !== VOLUNTEER_PIN) {
-      alert("Неверный PIN-код");
+      showToast("Неверный PIN-код (по умолчанию 2026)");
       return;
     }
     document.getElementById("admin-pin-gate").classList.add("hidden");
@@ -139,6 +182,7 @@ function bindEvents() {
     await loadAdminStudents();
   });
 
+  document.getElementById("btn-refresh-admin").addEventListener("click", loadAdminStudents);
   document.getElementById("btn-manual-verify").addEventListener("click", () => {
     const token = document.getElementById("manual-qr-input").value.trim();
     if (token) verifyCoupon(token);
@@ -152,13 +196,21 @@ function switchView(view) {
     btn.classList.toggle("tab-active", active);
     btn.classList.toggle("tab-idle", !active);
   });
+  document.querySelectorAll(".bnav-btn").forEach((btn) => {
+    const active = btn.dataset.view === view;
+    btn.classList.toggle("bnav-active", active);
+    btn.classList.toggle("bnav-idle", !active);
+  });
   document.getElementById("section-feed").classList.toggle("hidden", view === "profile");
   document.getElementById("section-profile").classList.toggle("hidden", view !== "profile");
+  document.getElementById("featured-buffet-card").classList.toggle("hidden", view !== "volunteering");
+
   if (view === "profile") renderProfile();
   else renderFeed();
 }
 
 async function loadStats() {
+  if (!sb) return;
   const [{ count: studentsCount }, { data: hoursRows }, { count: nfcCount }] = await Promise.all([
     sb.from("profiles").select("*", { count: "exact", head: true }),
     sb.from("profiles").select("verified_hours"),
@@ -171,13 +223,14 @@ async function loadStats() {
 }
 
 async function loadOpportunities() {
+  if (!sb) return;
   const { data, error } = await sb
     .from("opportunities")
     .select("*")
     .eq("is_approved", true)
     .order("created_at", { ascending: false });
   if (error) {
-    document.getElementById("feed-list").innerHTML = `<div class="p-4 text-sm text-red-600 bg-red-50 rounded-xl">${error.message}</div>`;
+    document.getElementById("feed-list").innerHTML = `<div class="p-4 text-sm text-red-600 bg-red-50 rounded-xl">${escapeHtml(error.message)}</div>`;
     return;
   }
   allOpportunities = data || [];
@@ -203,16 +256,16 @@ function renderFeed() {
   container.innerHTML = list
     .map(
       (item) => `
-      <article class="bg-white rounded-2xl border border-slate-200 p-4 space-y-2.5">
+      <article class="bg-white rounded-2xl border border-slate-200 p-4 space-y-2.5 shadow-sm">
         <div class="flex items-center justify-between gap-2">
-          <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold ${item.type === "volunteering" ? "bg-teal-50 text-teal-800" : "bg-blue-50 text-blue-900"}">${escapeHtml(item.category)}</span>
-          <span class="text-xs font-semibold text-slate-500">+${item.hours} ч. · мест: ${item.spots_total}</span>
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-bold ${item.type === "volunteering" ? "bg-teal-50 text-teal-800" : "bg-blue-50 text-blue-900"}">${escapeHtml(item.category)}</span>
+          <span class="text-xs font-bold text-slate-600">+${item.hours} ч. · мест: ${item.spots_total}</span>
         </div>
-        <h3 class="text-base font-bold text-slate-900 leading-snug">${escapeHtml(item.title)}</h3>
+        <h3 class="text-base font-extrabold text-slate-900 leading-snug">${escapeHtml(item.title)}</h3>
         <p class="text-sm text-slate-600 leading-relaxed">${escapeHtml(item.description)}</p>
-        <div class="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+        <div class="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2">
           <div class="text-xs text-slate-500">${escapeHtml(item.school_name)} · ${escapeHtml(item.author_name)}</div>
-          <button onclick="applyOpportunity('${item.id}', '${escapeHtml(item.author_telegram)}')" class="px-3.5 py-1.5 rounded-xl bg-blue-900 hover:bg-blue-800 text-white text-xs font-semibold transition">
+          <button onclick="applyOpportunity('${item.id}', '${escapeHtml(item.author_telegram)}')" class="px-4 py-2 rounded-xl bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold transition">
             Откликнуться
           </button>
         </div>
@@ -224,13 +277,14 @@ function renderFeed() {
 window.applyOpportunity = async function (opportunityId, authorTelegram) {
   const profileId = localStorage.getItem("binom_profile_id");
   if (!profileId) {
-    alert("Сначала пройди быструю регистрацию во вкладке «Профиль и QR» (20 секунд).");
+    showToast("Сначала создай профиль за 20 секунд!");
     switchView("profile");
     return;
   }
   await sb.from("applications").upsert({ opportunity_id: opportunityId, student_id: profileId }, { onConflict: "opportunity_id,student_id" });
+  showToast("Отклик сохранён!");
   const handle = authorTelegram.replace(/^@/, "");
-  if (confirm(`Отклик сохранён! Открыть Telegram (${authorTelegram}), чтобы написать организатору?`)) {
+  if (handle && confirm(`Отклик сохранён! Открыть Telegram (${authorTelegram}), чтобы написать организатору?`)) {
     window.open(`https://t.me/${handle}`, "_blank");
   }
 };
@@ -240,7 +294,7 @@ async function renderProfile() {
   const regCard = document.getElementById("register-card");
   const profCard = document.getElementById("profile-card");
 
-  if (!profileId) {
+  if (!profileId || !sb) {
     regCard.classList.remove("hidden");
     profCard.classList.add("hidden");
     return;
@@ -261,16 +315,16 @@ async function renderProfile() {
   document.getElementById("prof-meta").textContent = `${prof.school_name} · ${prof.grade} · ${prof.telegram}`;
   document.getElementById("prof-hours").textContent = `${prof.verified_hours} ч.`;
   document.getElementById("prof-coupon-status").textContent = prof.qr_used ? "Использован" : "Активен (1 раз)";
-  document.getElementById("prof-coupon-status").className = prof.qr_used ? "text-sm font-bold text-slate-400" : "text-sm font-bold text-teal-700";
+  document.getElementById("prof-coupon-status").className = prof.qr_used ? "text-sm font-bold text-slate-400" : "text-sm font-extrabold text-teal-800";
 
   const badges = [];
-  if (prof.is_first_volunteer) badges.push('<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900">★ First Volunteer</span>');
+  if (prof.is_first_volunteer) badges.push('<span class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-amber-300 text-slate-950">★ First Volunteer</span>');
   (prof.interests || []).forEach((i) => badges.push(`<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700">${escapeHtml(i)}</span>`));
   document.getElementById("prof-badges").innerHTML = badges.join("");
 
   const qrBox = document.getElementById("qrcode-box");
   qrBox.innerHTML = "";
-  new QRCode(qrBox, { text: prof.qr_token, width: 180, height: 180, colorDark: "#0F172A", colorLight: "#FFFFFF" });
+  new QRCode(qrBox, { text: prof.qr_token, width: 190, height: 190, colorDark: "#0F172A", colorLight: "#FFFFFF" });
   document.getElementById("qr-token-text").textContent = prof.qr_token;
 }
 
@@ -313,37 +367,47 @@ async function verifyCoupon(token) {
   await sb.from("profiles").update({ qr_used: true, qr_used_at: new Date().toISOString() }).eq("id", prof.id);
   resBox.classList.add("bg-emerald-50", "text-emerald-900");
   resBox.textContent = `КУПОН ПОДТВЕРЖДЁН! Выдайте угощение: ${prof.full_name} (${prof.school_name}, ${prof.grade}).`;
-  await loadAdminStudents();
+  await Promise.all([loadAdminStudents(), renderProfile()]);
 }
 
 async function loadAdminStudents() {
-  const { data } = await sb.from("profiles").select("*").order("created_at", { ascending: false }).limit(25);
+  const { data } = await sb.from("profiles").select("*").order("created_at", { ascending: false }).limit(30);
   const el = document.getElementById("admin-students-list");
-  el.innerHTML = (data || [])
+  if (!data || !data.length) {
+    el.innerHTML = '<div class="text-slate-400 py-2">Пока нет зарегистрированных учеников.</div>';
+    return;
+  }
+  el.innerHTML = data
     .map(
       (s) => `
-      <div class="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 border border-slate-200">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
         <div>
           <div class="font-bold text-slate-900">${escapeHtml(s.full_name)} (${escapeHtml(s.grade)})</div>
-          <div class="text-slate-500">${s.verified_hours} ч. · ${s.is_first_volunteer ? "First Volunteer" : "Ученик"}</div>
+          <div class="text-slate-500">${s.verified_hours} ч. · ${s.is_first_volunteer ? "★ First Volunteer" : "Ученик"} · QR: ${s.qr_used ? "погашен" : "активен"}</div>
         </div>
-        <div class="flex gap-1">
-          <button onclick="addHours('${s.id}', ${s.verified_hours})" class="px-2 py-1 rounded bg-blue-900 text-white font-semibold">+2 ч.</button>
-          <button onclick="grantFirstBadge('${s.id}')" class="px-2 py-1 rounded bg-amber-500 text-slate-950 font-semibold">★ Бейдж</button>
+        <div class="flex flex-wrap gap-1.5">
+          <button onclick="grantFirstVolo10h('${s.id}', ${s.verified_hours})" class="px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold">★ +10 ч. (буфет)</button>
+          <button onclick="addHours('${s.id}', ${s.verified_hours}, 2)" class="px-2.5 py-1.5 rounded-lg bg-blue-900 text-white font-bold">+2 ч.</button>
         </div>
       </div>`
     )
     .join("");
 }
 
-window.addHours = async function (id, currentHours) {
-  await sb.from("profiles").update({ verified_hours: (currentHours || 0) + 2 }).eq("id", id);
+window.grantFirstVolo10h = async function (id, currentHours) {
+  await sb.from("profiles").update({
+    verified_hours: (currentHours || 0) + 10,
+    is_first_volunteer: true,
+    role: "volunteer",
+  }).eq("id", id);
+  showToast("Начислено +10 часов и бейдж First Volunteer!");
   await Promise.all([loadAdminStudents(), loadStats(), renderProfile()]);
 };
 
-window.grantFirstBadge = async function (id) {
-  await sb.from("profiles").update({ is_first_volunteer: true, role: "volunteer" }).eq("id", id);
-  await Promise.all([loadAdminStudents(), renderProfile()]);
+window.addHours = async function (id, currentHours, delta) {
+  await sb.from("profiles").update({ verified_hours: (currentHours || 0) + delta }).eq("id", id);
+  showToast(`Начислено +${delta} ч.`);
+  await Promise.all([loadAdminStudents(), loadStats(), renderProfile()]);
 };
 
 function escapeHtml(str) {
